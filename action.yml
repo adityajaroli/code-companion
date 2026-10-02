@@ -1,0 +1,57 @@
+name: "code-companion"
+description: "Runs the PMAT CLI to analyze cyclomatic complexity and publishes a Markdown report to the job summary and, on pull requests, a sticky PR comment."
+author: "Aditya Jaroli"
+
+inputs:
+  github-token:
+    description: "Token used to post the sticky PR comment. Needs `pull-requests: write` on pull_request events."
+    required: false
+    default: ${{ github.token }}
+  max-cyclomatic:
+    description: "Maximum allowed cyclomatic complexity per function (passed to PMAT as --max-cyclomatic). The step fails if a function in the changed files exceeds it."
+    required: false
+    default: "20"
+  pmat-version:
+    description: "PMAT release to install (without the leading v)."
+    required: false
+    default: "3.42.0"
+
+outputs:
+  pmat-json:
+    description: "JSON report for the changed files as a compact string (per-file details dropped if it exceeds the 1 MB output limit)."
+    value: ${{ steps.report.outputs.pmat-json }}
+  json-report-path:
+    description: "Path to the JSON report file (changed files only)."
+    value: ${{ steps.report.outputs.json-report-path }}
+  report-path:
+    description: "Path to the generated Markdown report file."
+    value: ${{ steps.report.outputs.report-path }}
+  violations-count:
+    description: "Number of changed functions with cyclomatic complexity over max-cyclomatic."
+    value: ${{ steps.report.outputs.violations-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install PMAT
+      shell: bash
+      env:
+        PMAT_VERSION: ${{ inputs.pmat-version }}
+      run: bash "${{ github.action_path }}/scripts/install_pmat.sh"
+
+    - name: Generate complexity report
+      id: report
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/src
+        PYTHONDONTWRITEBYTECODE: "1"
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_PMAT_VERSION: ${{ inputs.pmat-version }}
+        INPUT_MAX_CYCLOMATIC: ${{ inputs.max-cyclomatic }}
+      # -P keeps the caller's workspace off sys.path so it can't shadow this package.
+      run: python -P -m code_companion
